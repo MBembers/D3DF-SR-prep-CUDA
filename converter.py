@@ -11,6 +11,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from typing import Tuple, Union
+from time import perf_counter
+
+import plotting
+import plotting2
+
 
 ## MLC ##
 
@@ -86,6 +91,9 @@ def enrich_df(input_df: pd.DataFrame, jaws: np.ndarray, mlc_positions: np.ndarra
   max_voxel_y = -total_space_len
   min_voxel_z =  total_space_len
   max_voxel_z = -total_space_len
+
+  # ANALYSIS
+  analysis = {}
   
   for _, row in input_df.iterrows():
     # remember parameters from current row
@@ -140,6 +148,7 @@ def enrich_df(input_df: pd.DataFrame, jaws: np.ndarray, mlc_positions: np.ndarra
           min_voxel_z = min(min_voxel_z, z)
           max_voxel_z = max(max_voxel_z, z)
   
+  print(f"iterated over input, generated {len(filled_points)} filled points.")
   print(f"filling {total_space_len}x{total_space_len}x{total_space_len} space...")
   print(f"voxel x range: {min_voxel_x} - {max_voxel_x}")
   print(f"voxel y range: {min_voxel_y} - {max_voxel_y}")
@@ -151,6 +160,8 @@ def enrich_df(input_df: pd.DataFrame, jaws: np.ndarray, mlc_positions: np.ndarra
   y_iterend   = space_y_range[1] - target_resolution/2 + 1
   z_iterstart = space_z_range[0] + target_resolution/2
   z_iterend   = space_z_range[1] - target_resolution/2 + 1
+
+  start_big_loop = perf_counter()
   for x in np.arange(x_iterstart, x_iterend, target_resolution):
     print(f"x = {x}", end="\r", flush=True)
     for y in np.arange(y_iterstart, y_iterend, target_resolution):
@@ -178,11 +189,14 @@ def enrich_df(input_df: pd.DataFrame, jaws: np.ndarray, mlc_positions: np.ndarra
         # check if current coords match any entry in filled points
         for index, entry in enumerate(filled_points):
           if x == entry['x'] and y == entry['y'] and z == entry['z']:
+            analysis["matching_filled_points_checks"] = analysis.get("matching_filled_points_checks", 0) + 1
             break
         else:
+
           index = -1
         if index != -1:
           # coords match entry, "detector" case
+          start_fsf_calc = perf_counter()
           raw_output.append({
             "Cell IdX": filled_points[index]["cell_idx"],
             "Cell IdY": filled_points[index]["cell_idy"],
@@ -197,6 +211,9 @@ def enrich_df(input_df: pd.DataFrame, jaws: np.ndarray, mlc_positions: np.ndarra
             "Dose": filled_points[index]["dose"],
             "FieldScalingFactor": calculate_fsf(x, y, z, cell_no_x, cell_no_y, cell_no_z, jaws, mlc_positions)
           })
+          end_fsf_calc = perf_counter()
+          analysis["fsf_calc_count"] = analysis.get("fsf_calc_count", 0) + 1
+          analysis["fsf_calc_time"] = analysis.get("fsf_calc_time", 0) + (end_fsf_calc - start_fsf_calc)
           # for speedup, delete for multiprocessing code
           del filled_points[index]
         else:
@@ -215,10 +232,15 @@ def enrich_df(input_df: pd.DataFrame, jaws: np.ndarray, mlc_positions: np.ndarra
             "Dose": 0,
             "FieldScalingFactor": 0
           })
+  end_big_loop = perf_counter()
+  analysis["big_loop_time"] = end_big_loop - start_big_loop
   output = pd.DataFrame(raw_output)
   # renormalize 
+  start_renorm = perf_counter()
   renormalized_output = renormalize_fsf(output)
-
+  end_renorm = perf_counter()
+  analysis['fsf_renormalization_time'] = end_renorm - start_renorm
+  print(analysis)
   return renormalized_output
 
 ## FSF ##
@@ -275,80 +297,6 @@ def angle_between(v1: np.ndarray, v2: np.ndarray) -> np.float64:
   v2_len = np.sqrt(v2[0]**2 + v2[1]**2 + v2[2]**2)
   return np.arccos(np.dot(v1, v2)/(v1_len*v2_len))
 
-## PLOTTING ##
-
-def add_voxel(ax, x_center: float, y_center: float, z_center: float, voxel_side_len: float, dose: float, min: float, max: float) -> None:
-  x = [x_center - voxel_side_len / 2, x_center + voxel_side_len / 2]
-  y = [y_center - voxel_side_len / 2, y_center + voxel_side_len / 2]
-  z = [z_center - voxel_side_len / 2, z_center + voxel_side_len / 2]
-  xx, yy, zz = np.meshgrid(x, y, z, indexing='ij')
-  
-  phantom_counts_norm = colors.Normalize(vmin=min, vmax=max)
-  pc_normalized = phantom_counts_norm(dose)
-  pc_colored = np.empty((*pc_normalized.shape, 4))
-  with np.nditer(pc_normalized, flags=['multi_index']) as it:
-    for el in it:
-      pc_colored[it.multi_index] = phantom_counts_cmap(el, alpha=(0.9))
-  ax.voxels(xx, yy, zz, np.ones((1,1,1), dtype=bool), facecolors=pc_colored, edgecolor=None)
-
-def plot_df(df: pd.DataFrame, ticks_x: np.ndarray, ticks_y: np.ndarray, ticks_z: np.ndarray, target_resolution: int) -> None:
-  observable = "FieldScalingFactor"
-
-  fig = plt.figure(figsize=(16, 12))
-  ax = fig.add_subplot(111, projection='3d')
-
-  # filter out "air"
-  df_nonzero_observable = df[df[observable] > 0]
-
-  dose_max = df_nonzero_observable[observable].max()
-  dose_min = df_nonzero_observable[observable].min()
-
-  counter=1
-  max_voxel=len(df_nonzero_observable)
-
-  for _, row in df_nonzero_observable.iterrows():
-    if row[observable] == 0:
-      # skip air
-      continue
-    x_center = row['X [mm]']
-    y_center = row['Y [mm]']
-    z_center = row['Z [mm]']
-
-    dose = row[observable]
-    if(counter % 100 == 0):
-      print(f"adding {counter}/{max_voxel} voxel...", end="\r", flush=True)
-    counter+=1
-
-    add_voxel(ax, x_center, y_center, z_center, target_resolution, dose, dose_min, dose_max)
-  print(f"added {counter-1}/{max_voxel} voxels. ")
-  print("rendering image...")
-  # Ustawienie limitów osi
-  x_min, x_max = df_nonzero_observable['X [mm]'].min() - target_resolution, df_nonzero_observable['X [mm]'].max() + target_resolution
-  y_min, y_max = df_nonzero_observable['Y [mm]'].min() - target_resolution, df_nonzero_observable['Y [mm]'].max() + target_resolution
-  z_min, z_max = df_nonzero_observable['Z [mm]'].min() - target_resolution, df_nonzero_observable['Z [mm]'].max() + target_resolution
-
-  ax.set_xlim([x_min, x_max])
-  ax.set_ylim([y_min, y_max])
-  ax.set_zlim([z_min, z_max])
-
-  x_scale = x_max - x_min
-  y_scale = y_max - y_min
-  z_scale = z_max - z_min
-  ax.set_box_aspect([1.2*x_scale, 1.2*y_scale, 1.2*z_scale])
-  ax.set_xlabel("x [mm]", fontsize=16,labelpad=10)
-  ax.set_ylabel("y [mm]", fontsize=16,labelpad=10)
-  ax.set_zlabel("z [mm]", fontsize=16,labelpad=10)
-  ax.set_xticks(ticks_x)
-  ax.set_yticks(ticks_y)
-  ax.set_zticks(ticks_z)
-  ax.tick_params(labelsize=12)
-  plt.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.05)
-  scalar_mappable = cm.ScalarMappable(norm=colors.Normalize(vmin=dose_min, vmax=dose_max), cmap=phantom_counts_cmap)
-  colorbar_axes = fig.add_axes([0.9, 0.1, 0.03, 0.8])  # Adjust the position as needed
-  cbar = fig.colorbar(scalar_mappable, cax=colorbar_axes, shrink=1.0, fraction=0.1, pad=0)
-  cbar.ax.tick_params(labelsize=20)
-  plt.show()
-
 ## MAIN ##
 
 if __name__ == "__main__":
@@ -358,19 +306,35 @@ if __name__ == "__main__":
   # data_filename = "cp-0_d3ddetector_cell.csv"
   data_filename = "data/new/prostate_imrt_beam0_cp74_d3ddetector_cell.csv"
   raw_df = pd.read_csv(data_filename)
+  print(f"raw data read from {data_filename}...")
 
   # mlc_filename = "1. prostate_imrt_beam0_cp0.dat"
   mlc_filename = "data/new/prostate_imrt_beam0_cp74.dat"
   jaws, mlc_positions, _ = parse_mlc_data(mlc_filename)
+  print(f"mlc data parsed, jaws: {jaws}, mlc_positions number: {len(mlc_positions)}")
   unique_xs_raw = np.array(sorted(raw_df['X [mm]'].unique()))
   unique_ys_raw = np.array(sorted(raw_df['Y [mm]'].unique()))
   unique_zs_raw = np.array(sorted(raw_df['Z [mm]'].unique()))
 
   sorted_df = raw_df.sort_values(by=['X [mm]', 'Y [mm]', 'Z [mm]'])
-  df = enrich_df(sorted_df, jaws, mlc_positions, target_resolution, cell_size)
+  print("cell data sorted, generating output...")
+  
+  start = perf_counter()
+  df = enrich_df(sorted_df, jaws, mlc_positions, target_resolution, cell_size, )
+  end = perf_counter()
+  print(f"output generated in {end-start:.2f} seconds.")
 
   df.to_csv("output.csv", index=False)
-  # plot_df(df, unique_xs_raw, unique_ys_raw, unique_zs_raw, target_resolution)
+
+  start_plotting = perf_counter()
+  plotting.plot_df(df, unique_xs_raw, unique_ys_raw, unique_zs_raw, target_resolution, output_filename="output.png")
+  end_plotting = perf_counter()
+  print(f"output plotted in {end_plotting-start_plotting:.4f} seconds.")
+
+  start_plotting2 = perf_counter()
+  plotting2.plot_df(df, unique_xs_raw, unique_ys_raw, unique_zs_raw, target_resolution, output_filename="output2.png")
+  end_plotting2 = perf_counter()
+  print(f"output plotted with plotting2 in {end_plotting2-start_plotting2:.4f} seconds.")
 
 
 # TODO FSF do sprawdzenia                                                                 not yet
