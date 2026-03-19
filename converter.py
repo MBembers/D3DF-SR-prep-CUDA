@@ -324,15 +324,15 @@ if __name__ == "__main__":
   end = perf_counter()
   print(f"output generated in {end-start:.2f} seconds.")
 
-  df.to_csv("output.csv", index=False)
+  df.to_csv("outputs/output.csv", index=False)
 
   start_plotting = perf_counter()
-  plotting.plot_df(df, unique_xs_raw, unique_ys_raw, unique_zs_raw, target_resolution, output_filename="output.png")
+  plotting.plot_df(df, unique_xs_raw, unique_ys_raw, unique_zs_raw, target_resolution, output_filename="outputs/output.png")
   end_plotting = perf_counter()
   print(f"output plotted in {end_plotting-start_plotting:.4f} seconds.")
 
   start_plotting2 = perf_counter()
-  plotting2.plot_df(df, unique_xs_raw, unique_ys_raw, unique_zs_raw, target_resolution, output_filename="output2.png")
+  plotting2.plot_df(df, unique_xs_raw, unique_ys_raw, unique_zs_raw, target_resolution, output_filename="outputs/output2.png")
   end_plotting2 = perf_counter()
   print(f"output plotted with plotting2 in {end_plotting2-start_plotting2:.4f} seconds.")
 
