@@ -13,8 +13,8 @@ import numpy as np
 from typing import Tuple, Union
 from time import perf_counter
 
-import plotting
-import plotting2
+import src.plotting as plotting
+import src.plotting2 as plotting2
 
 
 ## MLC ##
@@ -188,8 +188,8 @@ def enrich_df(input_df: pd.DataFrame, jaws: np.ndarray, mlc_positions: np.ndarra
           continue
         # check if current coords match any entry in filled points
         for index, entry in enumerate(filled_points):
+          analysis["matching_filled_points_checks"] = analysis.get("matching_filled_points_checks", 0) + 1
           if x == entry['x'] and y == entry['y'] and z == entry['z']:
-            analysis["matching_filled_points_checks"] = analysis.get("matching_filled_points_checks", 0) + 1
             break
         else:
 
@@ -312,9 +312,6 @@ if __name__ == "__main__":
   mlc_filename = "data/new/prostate_imrt_beam0_cp74.dat"
   jaws, mlc_positions, _ = parse_mlc_data(mlc_filename)
   print(f"mlc data parsed, jaws: {jaws}, mlc_positions number: {len(mlc_positions)}")
-  unique_xs_raw = np.array(sorted(raw_df['X [mm]'].unique()))
-  unique_ys_raw = np.array(sorted(raw_df['Y [mm]'].unique()))
-  unique_zs_raw = np.array(sorted(raw_df['Z [mm]'].unique()))
 
   sorted_df = raw_df.sort_values(by=['X [mm]', 'Y [mm]', 'Z [mm]'])
   print("cell data sorted, generating output...")
@@ -326,17 +323,19 @@ if __name__ == "__main__":
 
   df.to_csv("outputs/output.csv", index=False)
 
-  start_plotting = perf_counter()
-  plotting.plot_df(df, unique_xs_raw, unique_ys_raw, unique_zs_raw, target_resolution, output_filename="outputs/output.png")
-  end_plotting = perf_counter()
-  print(f"output plotted in {end_plotting-start_plotting:.4f} seconds.")
+  # plotting
+  if False:
+    # for testing
+    unique_xs_raw = np.array(sorted(raw_df['X [mm]'].unique()))
+    unique_ys_raw = np.array(sorted(raw_df['Y [mm]'].unique()))
+    unique_zs_raw = np.array(sorted(raw_df['Z [mm]'].unique()))
 
-  start_plotting2 = perf_counter()
-  plotting2.plot_df(df, unique_xs_raw, unique_ys_raw, unique_zs_raw, target_resolution, output_filename="outputs/output2.png")
-  end_plotting2 = perf_counter()
-  print(f"output plotted with plotting2 in {end_plotting2-start_plotting2:.4f} seconds.")
+    start_plotting = perf_counter()
+    plotting.plot_df(df, unique_xs_raw, unique_ys_raw, unique_zs_raw, target_resolution, output_filename="outputs/output.png")
+    end_plotting = perf_counter()
+    print(f"output plotted in {end_plotting-start_plotting:.4f} seconds.")
 
-
-# TODO FSF do sprawdzenia                                                                 not yet
-# TODO parallelizing with numba??                                                         not yet
-# TODO sprawdź czy zmiana gridu z 64x64x64 na inny przewraca program (powinna?)           not yet
+    start_plotting2 = perf_counter()
+    plotting2.plot_df(df, unique_xs_raw, unique_ys_raw, unique_zs_raw, target_resolution, output_filename="outputs/output2.png")
+    end_plotting2 = perf_counter()
+    print(f"output plotted with plotting2 in {end_plotting2-start_plotting2:.4f} seconds.")
