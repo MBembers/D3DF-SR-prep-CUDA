@@ -76,7 +76,7 @@ def angle_between_components(v1x: float, v1y: float, v1z: float,
 
 
 @njit(cache=True, fastmath=False)
-def calculate_fsf_numba(x: float, y: float, z: float,
+def calculate_fsf(x: float, y: float, z: float,
                         nx: int, ny: int, nz: int,
                         mlc_positions: np.ndarray) -> float:
   n_leaves = mlc_positions.shape[0]
@@ -133,7 +133,7 @@ def compute_fsf_for_points(x_vals: np.ndarray,
   n = x_vals.shape[0]
   out = np.zeros(n, dtype=np.float64)
   for i in prange(n):
-    out[i] = calculate_fsf_numba(
+    out[i] = calculate_fsf(
       x_vals[i], y_vals[i], z_vals[i],
       nx, ny, nz,
       mlc_positions,
@@ -141,7 +141,7 @@ def compute_fsf_for_points(x_vals: np.ndarray,
   return out
 
 
-def renormalize_fsf_numpy(fsf_array: np.ndarray) -> np.ndarray:
+def renormalize_fsf(fsf_array: np.ndarray) -> np.ndarray:
   out = fsf_array.copy()
   nonzero_mask = out != 0.0
   if not np.any(nonzero_mask):
@@ -169,7 +169,7 @@ def _build_subvoxel_offsets(voxel_no_per_cell: int,
   return np.linspace(start, end, voxel_no_per_cell, dtype=np.float64)
 
 
-def enrich_df_numpy_numba(input_df: pd.DataFrame,
+def enrich_df(input_df: pd.DataFrame,
                           jaws: np.ndarray,
                           mlc_positions: np.ndarray,
                           target_resolution: int = 1,
@@ -232,6 +232,7 @@ def enrich_df_numpy_numba(input_df: pd.DataFrame,
   max_iy = -1
   max_iz = -1
 
+  # Building the lookup arrays
   for c in range(n_cells):
     cx = center_x_arr[c]
     cy = center_y_arr[c]
@@ -301,6 +302,7 @@ def enrich_df_numpy_numba(input_df: pd.DataFrame,
   out_y = np.empty(n_total, dtype=np.float64)
   out_z = np.empty(n_total, dtype=np.float64)
 
+  # Collecting coordinates of detector voxels for FSF computation.
   detector_linear_indices = []
   detector_x = []
   detector_y = []
@@ -361,7 +363,7 @@ def enrich_df_numpy_numba(input_df: pd.DataFrame,
   t3 = perf_counter()
   print(f"fsf computed in {t3 - t2:.2f}s")
 
-  out_fsf = renormalize_fsf_numpy(out_fsf)
+  out_fsf = renormalize_fsf(out_fsf)
 
   output_df = pd.DataFrame({
     'Cell IdX': out_cell_idx,
@@ -400,7 +402,7 @@ if __name__ == '__main__':
   sorted_df = raw_df.sort_values(by=['X [mm]', 'Y [mm]', 'Z [mm]'])
 
   start = perf_counter()
-  output_df = enrich_df_numpy_numba(
+  output_df = enrich_df(
     sorted_df,
     jaws,
     mlc_positions,
